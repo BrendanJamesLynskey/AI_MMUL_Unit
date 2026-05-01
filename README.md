@@ -60,6 +60,41 @@ The CocoTB tests import the very same Python model used to develop the algorithm
 
 ---
 
+## Synthesis Results
+
+Target: Xilinx Artix-7 (`xc7a35tcpg236-1`, speed grade −1) | Tool: Vivado 2025.2 | Clock constraint: 125 MHz (8.0 ns) | Mode: out-of-context (block-level — no IO buffers, suitable for IP characterisation since the modules expose hundreds of bits of packed-array ports).
+
+Default parameters: `DATA_WIDTH=16` (Q8.8), `ACC_WIDTH=32`, `ROWS=COLS=K_DIM=4` for the array modules, `K=4` for the dot-product unit (the synth uses the package default).
+
+| Module | LUTs | FFs | BRAM | DSP | Fmax (MHz) |
+| --- | --- | --- | --- | --- | --- |
+| `mmul_pe`                | 34  | 64  | 0 | 1  | **201.5** |
+| `mmul_dotproduct`        | 0   | 0   | 0 | 4  | comb-only† |
+| `mmul_systolic_os`       | 450 | 896 | 0 | 16 | **136.0** |
+| `mmul_weight_stationary` | 324 | 768 | 0 | 16 | **125.3** |
+
+*Post-route results from Vivado batch synthesis. Fmax = 1000 / (period − WNS).*
+
+† `mmul_dotproduct` is purely combinational (one cycle, no internal flops); with only the clock constraint on this OOC view, Vivado has no register-to-register path to time. The DSP count tells the relevant story: a K=4 dot product packs into 4 DSP48E1 cascades using the slice's built-in pre-add / post-add — zero auxiliary fabric. To bound combinational delay, register the inputs/outputs and re-run with `set_input_delay` / `set_output_delay`.
+
+### What the numbers say
+
+- **Each PE costs one DSP48E1.** The 4×4 systolic instances 16 PEs → 16 DSPs exactly. A full 256×256 array would need 65,536 DSPs — far more than any Artix-7 has (90 on the −1 part), but well within reach on a Versal or a high-end ASIC node.
+- **Resources scale linearly with array area**, as expected. PE → 4×4 array = 16× the LUTs, FFs and DSPs.
+- **Fmax drops from 201 MHz (single PE) to 136 MHz (4×4 OS array)** — almost entirely due to the longer wires through the 2-D mesh and the larger fan-out on the broadcast nets, not the multiplier itself. ASIC implementations would close this gap with retiming and clock-gating per row/column.
+- **The weight-stationary array is slightly smaller than the OS array** (324 vs 450 LUTs) because the fully-parallel inner loop replaces the per-PE skew flops with shared input fan-out — but its Fmax is also lower, again because of fan-out.
+- **Critical path through the PE** is `a_in × w_in → adder → acc_out` (multiplier + 32-bit add + flop). On Artix-7 −1 this gives 3.037 ns slack at 8 ns target = ~201 MHz. The DSP48E1's M and P internal pipeline registers would push this past 400 MHz at a one-cycle latency penalty per PE — the standard "register the DSP output" trade.
+
+### Run synthesis
+
+```bash
+vivado -mode batch -nojournal -nolog -source synth/synth_all.tcl
+```
+
+Reports land in `synthesis_logs/` (utilization + timing summary per module).
+
+---
+
 ## Worked example: 2×2 matmul on the systolic array
 
 ```
