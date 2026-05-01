@@ -1,0 +1,7 @@
+sim_results/*.vvp
+sim_results/*.log
+tb/cocotb/sim_build/
+tb/cocotb/results.xml
+*.vcd
+__pycache__/
+*.pyc

@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Matrix Multiplier Units — Hardware Deep Dive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-card: #0d1117;
+            --bg-code: #161b22;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #f59e0b;
+            --accent-dim: #f59e0b22;
+            --accent-glow: #f59e0b33;
+            --green: #10b981;
+            --blue: #60a5fa;
+            --purple: #a78bfa;
+            --red: #ef4444;
+            --border: #21262d;
+            --font-display: 'Space Grotesk', sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --font-body: 'Inter', sans-serif;
+            --max-width: 920px;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--bg-primary); color: var(--text-primary);
+            font-family: var(--font-body); font-size: 17px; line-height: 1.7;
+            overflow-x: hidden;
+        }
+        .hero {
+            min-height: 100vh; display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            padding: 2rem 1.5rem; text-align: center; position: relative;
+        }
+        .hero::before {
+            content: ''; position: absolute; top: 0; left: 50%;
+            transform: translateX(-50%); width: 600px; height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none; z-index: 0;
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .series-label {
+            font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent);
+            letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1rem;
+        }
+        .hero h1 {
+            font-family: var(--font-display); font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700; line-height: 1.2; margin-bottom: 1rem;
+        }
+        .hero h1 .accent { color: var(--accent); }
+        .hero .subtitle {
+            font-size: 1.1rem; color: var(--text-secondary);
+            max-width: 640px; margin-bottom: 2rem;
+        }
+        .tags { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 2.5rem; }
+        .tag {
+            font-family: var(--font-mono); font-size: 0.75rem;
+            padding: 0.25rem 0.75rem; border-radius: 999px;
+            border: 1px solid var(--accent); color: var(--accent);
+            background: var(--accent-dim); white-space: nowrap;
+        }
+        .slide {
+            min-height: 100vh; max-width: var(--max-width); margin: 0 auto;
+            padding: 4rem 1.5rem; position: relative;
+            display: flex; flex-direction: column; justify-content: center;
+        }
+        .slide-number {
+            font-family: var(--font-display); font-size: 5rem; font-weight: 700;
+            color: var(--accent-dim); position: absolute; top: 2rem; right: 1.5rem;
+            line-height: 1; user-select: none;
+        }
+        .slide h2 {
+            font-family: var(--font-display); font-size: 1.9rem; font-weight: 700;
+            color: var(--accent); margin-bottom: 1.5rem; line-height: 1.25;
+        }
+        .slide h3 {
+            font-family: var(--font-display); font-size: 1.3rem; font-weight: 600;
+            color: var(--text-primary); margin-top: 1.5rem; margin-bottom: 0.75rem;
+        }
+        .slide p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .slide p strong { color: var(--text-primary); }
+        .slide ul, .slide ol { margin-bottom: 1rem; padding-left: 1.5rem; color: var(--text-secondary); }
+        .slide li { margin-bottom: 0.4rem; }
+        .slide li strong { color: var(--text-primary); }
+
+        .code-block {
+            background: var(--bg-code); border: 1px solid var(--border);
+            border-radius: 8px; margin: 1.25rem 0; overflow: hidden;
+        }
+        .code-header {
+            font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent);
+            background: rgba(245, 158, 11, 0.08); padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .code-block pre { margin: 0; padding: 1rem; overflow-x: auto; }
+        .code-block code { font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.6; color: #c9d1d9; }
+        .kw { color: #ff7b72; } .fn { color: #d2a8ff; } .str { color: #a5d6ff; }
+        .cm { color: #8b949e; font-style: italic; } .num { color: #79c0ff; }
+        .type { color: #ffa657; }
+
+        .table-wrap { overflow-x: auto; margin: 1.25rem 0; border-radius: 8px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { background: var(--bg-code); color: var(--accent); font-weight: 600; text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); font-family: var(--font-display); white-space: nowrap; }
+        td { padding: 0.5rem 0.9rem; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(13, 17, 23, 0.5); }
+        td strong, td code { color: var(--text-primary); }
+        td code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-code); padding: 0.05rem 0.3rem; border-radius: 3px; }
+
+        .diagram-grid { display: grid; gap: 0.75rem; margin: 1.5rem 0; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+        .diagram-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+        .diagram-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .diagram-panel { padding: 1rem; background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; }
+        .diagram-panel.accent-border { border-left: 3px solid var(--accent); }
+        .diagram-panel h4 { font-family: var(--font-display); font-size: 1rem; color: var(--accent); margin-bottom: 0.5rem; }
+        .diagram-panel p, .diagram-panel ul { font-size: 0.85rem; }
+        .callout { background: var(--bg-card); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 1rem 1.25rem; margin: 1.25rem 0; }
+        .callout p { margin-bottom: 0; }
+        .callout-label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.3rem; }
+
+        .canvas-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1.25rem 0; overflow-x: auto; }
+        .canvas-wrap svg, .canvas-wrap canvas { display: block; margin: 0 auto; max-width: 100%; }
+
+        .control-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin: 1.25rem 0; }
+        .control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+        .control-row label { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary); min-width: 200px; }
+        .control-row select, .control-row input[type="range"], .control-row input[type="number"] {
+            background: var(--bg-code); border: 1px solid var(--border);
+            color: var(--text-primary); border-radius: 4px; padding: 0.3rem 0.5rem;
+            font-family: var(--font-mono); font-size: 0.85rem;
+        }
+        .control-row input[type="range"] { flex: 1; min-width: 180px; accent-color: var(--accent); }
+        .control-row .val { font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent); min-width: 90px; text-align: right; }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin-top: 0.75rem; }
+        .metric { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.8rem; text-align: center; }
+        .metric .metric-label { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
+        .metric .metric-value { font-family: var(--font-display); font-size: 1.25rem; color: var(--accent); font-weight: 600; margin-top: 0.2rem; }
+        .pill-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0 0.8rem; }
+        .pill { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.25rem 0.7rem; border-radius: 999px; background: var(--bg-code); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; user-select: none; }
+        .pill.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+        .pill:hover { color: var(--text-primary); }
+
+        .footer { text-align: center; padding: 3rem 1.5rem; color: var(--text-secondary); font-size: 0.85rem; border-top: 1px solid var(--border); max-width: var(--max-width); margin: 0 auto; }
+        .footer a { color: var(--accent); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+
+        .contents-list { list-style: none; padding-left: 0; counter-reset: contents; }
+        .contents-list li { counter-increment: contents; padding: 0.55rem 0; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 1rem; }
+        .contents-list li:last-child { border-bottom: none; }
+        .contents-list li::before { content: counter(contents, decimal-leading-zero); font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent); min-width: 2rem; }
+        .contents-list a { color: var(--text-primary); text-decoration: none; transition: color 0.2s; }
+        .contents-list a:hover { color: var(--accent); }
+
+        @media (max-width: 640px) {
+            .slide { padding: 3rem 1rem; min-height: auto; }
+            .slide-number { font-size: 3rem; top: 1.5rem; right: 1rem; }
+            .slide h2 { font-size: 1.5rem; }
+            .diagram-grid.cols-2, .diagram-grid.cols-3 { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 1.8rem; }
+            table { font-size: 0.78rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- HERO -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="series-label">Hardware · AI Accelerators</div>
+  <h1>The Hardware <span class="accent">Matrix Multiplier Unit</span></h1>
+  <p class="subtitle">From Kung &amp; Leiserson 1978 to Blackwell FP4 — what an AI accelerator's MMUL really is, why every modern chip has one, and how it shapes the rest of the system.</p>
+  <div class="tags">
+    <span class="tag">Systolic arrays</span>
+    <span class="tag">Tensor Cores</span>
+    <span class="tag">FP8 · FP4 · MXFP</span>
+    <span class="tag">TPU · H100 · B200</span>
+    <span class="tag">Memory hierarchy</span>
+    <span class="tag">Power &amp; thermals</span>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 1: Contents -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s1">
+  <div class="slide-number">01</div>
+  <h2>What this deck covers</h2>
+  <p>Twenty-three slides, broadly grouped:</p>
+  <ol class="contents-list">
+    <li><a href="#s2">Why a dedicated MMUL exists — energy and the roofline</a></li>
+    <li><a href="#s3">A short history: from MAC to TPU</a></li>
+    <li><a href="#s4">The systolic principle</a></li>
+    <li><a href="#s5">Output-stationary array — TPU style</a></li>
+    <li><a href="#s6">Weight-stationary array — NVDLA / edge style</a></li>
+    <li><a href="#s7">Input-stationary &amp; row-stationary (Eyeriss)</a></li>
+    <li><a href="#s8">Dot-product trees — NVIDIA Tensor Cores</a></li>
+    <li><a href="#s9">What runs on an MMUL? Mapping to the Transformer</a></li>
+    <li><a href="#s10">Number formats — FP32 to FP4</a></li>
+    <li><a href="#s11">Block-scaled microformats — MXFP, NVFP4</a></li>
+    <li><a href="#s12">Stochastic rounding &amp; mixed accumulation</a></li>
+    <li><a href="#s13">Real systems — TPU lineage</a></li>
+    <li><a href="#s14">Real systems — NVIDIA Tensor Cores</a></li>
+    <li><a href="#s15">Real systems — Cerebras / Groq / Dojo / Trainium / ANE / SME / Sohu</a></li>
+    <li><a href="#s16">Memory hierarchy — what feeds the MMUL</a></li>
+    <li><a href="#s17">Are caches useful?</a></li>
+    <li><a href="#s18">Performance: peak vs sustained</a></li>
+    <li><a href="#s19">Power: every joule comes from somewhere</a></li>
+    <li><a href="#s20">Thermals &amp; power delivery</a></li>
+    <li><a href="#s21">Tradeoffs: array size, format, fill bubbles</a></li>
+    <li><a href="#s22">Interactive: dataflow comparator</a></li>
+    <li><a href="#s23">Interactive: number-format explorer</a></li>
+    <li><a href="#s24">Where this is going (2025 → 2027)</a></li>
+  </ol>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 2: Why MMUL -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s2">
+  <div class="slide-number">02</div>
+  <h2>Why a dedicated MMUL exists</h2>
+  <p>A modern LLM forward pass is more than 99% multiply-accumulate (MAC). On a general-purpose CPU, almost all the energy spent on that workload is <em>not</em> the math — it's fetching operands from DRAM and shuttling them through register files.</p>
+
+  <h3>Horowitz, ISSCC 2014 — the numbers that built an industry</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operation (45 nm)</th><th>Energy</th><th>Relative to MAC</th></tr>
+    <tr><td>32-bit FP MUL</td><td>3.7 pJ</td><td>1×</td></tr>
+    <tr><td>32-bit FP ADD</td><td>0.9 pJ</td><td>0.25×</td></tr>
+    <tr><td>32-bit FP MAC (effective)</td><td><strong>4.6 pJ</strong></td><td><strong>1×</strong></td></tr>
+    <tr><td>32-bit register-file read</td><td>0.1 pJ</td><td>0.02×</td></tr>
+    <tr><td>32-bit on-chip SRAM read</td><td>5 pJ</td><td>~1×</td></tr>
+    <tr><td>Off-chip DRAM access</td><td><strong>640 pJ</strong></td><td><strong>~140×</strong></td></tr>
+  </table></div>
+
+  <p>An MMUL only wins if every operand fetched from DRAM is reused <strong>O(N)</strong> times across many MACs. That reuse — temporal in registers and scratchpads, <strong>spatial</strong> across thousands of PEs — is the entire reason the architecture exists.</p>
+
+  <h3>The roofline argument</h3>
+  <p>Williams et al. (2009): performance is bounded by min(peak FLOP/s, AI · peak BW), where <strong>arithmetic intensity AI = FLOPs per byte of DRAM traffic</strong>.</p>
+  <ul>
+    <li>Vector add: AI ≈ <code>1/12</code>. Firmly memory-bound.</li>
+    <li>1024×1024 matmul: AI ≈ <code>2N/3 ≈ 683</code> FLOPs/byte. Compute-bound on every modern device.</li>
+    <li>That's the only common kernel with this property — and it's the one the MMUL is built to exploit.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-label">Bottom line</div>
+    <p>Matmul is the rare workload where you can spend 1 byte of DRAM bandwidth and get hundreds of FLOPs back. The MMUL is the structure that turns that arithmetic intensity into <em>actual</em> joules saved.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 3: History -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s3">
+  <div class="slide-number">03</div>
+  <h2>A short history</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Year</th><th>Event</th></tr>
+    <tr><td>1976</td><td>TRW MPY-016 single-chip MAC — the immediate ancestor of every "tensor" instruction</td></tr>
+    <tr><td>1978</td><td>Kung &amp; Leiserson, <em>Systolic Arrays (for VLSI)</em> — Sparse Matrix Proceedings, SIAM</td></tr>
+    <tr><td><strong>1982</strong></td><td><strong>H. T. Kung, <em>Why Systolic Architectures?</em></strong> — IEEE Computer. Often misdated as 1979 — the canonical citation</td></tr>
+    <tr><td>1984</td><td>Warp (CMU + GE/Honeywell) — 10-cell linear systolic, 100 MFLOPS/cell @ 10 MHz</td></tr>
+    <tr><td>1990</td><td>iWarp (CMU + Intel) — single-chip 700K-transistor LIW with on-die mesh; ancestor of "compute + on-chip routing"</td></tr>
+    <tr><td>2015</td><td>Google TPU v1 deployed internally — 256×256 INT8 systolic, 92 TOPS @ 700 MHz</td></tr>
+    <tr><td>2017</td><td>NVIDIA Volta V100 ships first <strong>Tensor Core</strong> (4×4×4, FP16 mul / FP32 acc)</td></tr>
+    <tr><td>2018</td><td>Turing T4: INT8/INT4 in TC; NVDLA RTL released open-source</td></tr>
+    <tr><td>2020</td><td>A100: TF32, BF16, FP64 TC, 2:4 structured sparsity; 312 TFLOPS BF16</td></tr>
+    <tr><td>2022</td><td>H100: <strong>FP8 (E4M3, E5M2)</strong>, TMA, Transformer Engine; 1979 TFLOPS FP8 dense</td></tr>
+    <tr><td>2023</td><td>OCP MX v1.0 specification — block-scaled FP8/6/4 with shared E8M0 scale</td></tr>
+    <tr><td>2024</td><td>Blackwell B200: <strong>FP4</strong> (E2M1) + NVFP4; 20 PF FP4 dense per package</td></tr>
+    <tr><td>2024</td><td>TPU v6e Trillium: MXU enlarged from 128×128 to <strong>256×256</strong> — first resize since 2017</td></tr>
+    <tr><td>2025</td><td>TPU v7 Ironwood; AMD MI355X (FP4); Microsoft Maia 100 — block-scaled formats become default</td></tr>
+  </table></div>
+
+  <p>The throughline: <strong>spatial reuse via locally-connected PEs</strong>. Forty-eight years separate Kung's 1978 paper from the Blackwell datasheet — the slide deck has changed, the principle hasn't.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 4: The systolic principle -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s4">
+  <div class="slide-number">04</div>
+  <h2>The systolic principle</h2>
+  <p>Kung's metaphor: blood through a heart. Data <em>pumps</em> through a regular array of locally-connected processing elements. Operands enter at the edges, results emerge after a fixed number of cycles, no element ever stalls waiting on global memory.</p>
+
+  <h3>Three properties that fall out for free</h3>
+  <ul>
+    <li><strong>Regular wiring.</strong> Every PE talks only to nearest neighbours — short wires, easy floorplan, no crossbars. Critical at 5 nm where wires dominate energy.</li>
+    <li><strong>Pipelining.</strong> One MAC per PE per cycle once the array is full — peak throughput = ROWS · COLS MACs per cycle.</li>
+    <li><strong>Bandwidth amortisation.</strong> Each operand entering the edge is reused <code>O(N)</code> times before leaving. DRAM bandwidth requirements scale as <code>N</code>, not <code>N²</code> or <code>N³</code>.</li>
+  </ul>
+
+  <div class="canvas-wrap">
+    <svg viewBox="0 0 720 280" width="720" height="280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L5,3 z" fill="#f59e0b"/>
+        </marker>
+      </defs>
+      <g font-family="JetBrains Mono" font-size="11" fill="#e6edf3">
+        <!-- A streams (left edge) -->
+        <text x="20" y="60" fill="#60a5fa">A[0,*]→</text>
+        <text x="20" y="120" fill="#60a5fa">A[1,*]→</text>
+        <text x="20" y="180" fill="#60a5fa">A[2,*]→</text>
+        <text x="20" y="240" fill="#60a5fa">A[3,*]→</text>
+        <!-- B streams (top edge) -->
+        <text x="120" y="20" fill="#a78bfa">B[*,0]↓</text>
+        <text x="240" y="20" fill="#a78bfa">B[*,1]↓</text>
+        <text x="360" y="20" fill="#a78bfa">B[*,2]↓</text>
+        <text x="480" y="20" fill="#a78bfa">B[*,3]↓</text>
+        <!-- 4x4 PE grid -->
+      </g>
+      <g>
+        <!-- PE rectangles -->
+        <g fill="#161b22" stroke="#f59e0b">
+        <rect x="100" y="40"  width="80" height="50" rx="4"/>
+        <rect x="220" y="40"  width="80" height="50" rx="4"/>
+        <rect x="340" y="40"  width="80" height="50" rx="4"/>
+        <rect x="460" y="40"  width="80" height="50" rx="4"/>
+        <rect x="100" y="100" width="80" height="50" rx="4"/>
+        <rect x="220" y="100" width="80" height="50" rx="4"/>
+        <rect x="340" y="100" width="80" height="50" rx="4"/>
+        <rect x="460" y="100" width="80" height="50" rx="4"/>
+        <rect x="100" y="160" width="80" height="50" rx="4"/>
+        <rect x="220" y="160" width="80" height="50" rx="4"/>
+        <rect x="340" y="160" width="80" height="50" rx="4"/>
+        <rect x="460" y="160" width="80" height="50" rx="4"/>
+        <rect x="100" y="220" width="80" height="50" rx="4"/>
+        <rect x="220" y="220" width="80" height="50" rx="4"/>
+        <rect x="340" y="220" width="80" height="50" rx="4"/>
+        <rect x="460" y="220" width="80" height="50" rx="4"/>
+        </g>
+        <g font-family="JetBrains Mono" font-size="10" fill="#f59e0b" text-anchor="middle">
+          <text x="140" y="70">PE 0,0</text><text x="260" y="70">PE 0,1</text><text x="380" y="70">PE 0,2</text><text x="500" y="70">PE 0,3</text>
+          <text x="140" y="130">PE 1,0</text><text x="260" y="130">PE 1,1</text><text x="380" y="130">PE 1,2</text><text x="500" y="130">PE 1,3</text>
+          <text x="140" y="190">PE 2,0</text><text x="260" y="190">PE 2,1</text><text x="380" y="190">PE 2,2</text><text x="500" y="190">PE 2,3</text>
+          <text x="140" y="250">PE 3,0</text><text x="260" y="250">PE 3,1</text><text x="380" y="250">PE 3,2</text><text x="500" y="250">PE 3,3</text>
+        </g>
+        <g stroke="#f59e0b" fill="none" marker-end="url(#arr)">
+          <!-- horizontal arrows (A flow) -->
+          <line x1="180" y1="65"  x2="216" y2="65"/><line x1="300" y1="65"  x2="336" y2="65"/><line x1="420" y1="65"  x2="456" y2="65"/>
+          <line x1="180" y1="125" x2="216" y2="125"/><line x1="300" y1="125" x2="336" y2="125"/><line x1="420" y1="125" x2="456" y2="125"/>
+          <line x1="180" y1="185" x2="216" y2="185"/><line x1="300" y1="185" x2="336" y2="185"/><line x1="420" y1="185" x2="456" y2="185"/>
+          <line x1="180" y1="245" x2="216" y2="245"/><line x1="300" y1="245" x2="336" y2="245"/><line x1="420" y1="245" x2="456" y2="245"/>
+          <!-- vertical arrows (B flow) -->
+          <line x1="140" y1="90"  x2="140" y2="100"/><line x1="140" y1="150" x2="140" y2="160"/><line x1="140" y1="210" x2="140" y2="220"/>
+          <line x1="260" y1="90"  x2="260" y2="100"/><line x1="260" y1="150" x2="260" y2="160"/><line x1="260" y1="210" x2="260" y2="220"/>
+          <line x1="380" y1="90"  x2="380" y2="100"/><line x1="380" y1="150" x2="380" y2="160"/><line x1="380" y1="210" x2="380" y2="220"/>
+          <line x1="500" y1="90"  x2="500" y2="100"/><line x1="500" y1="150" x2="500" y2="160"/><line x1="500" y1="210" x2="500" y2="220"/>
+        </g>
+        <text x="600" y="155" font-family="JetBrains Mono" font-size="11" fill="#10b981">acc[r,c]</text>
+      </g>
+    </svg>
+  </div>
+
+  <p class="cm" style="text-align: center; font-style: italic;">A 4×4 output-stationary mesh. A streams left→right (blue), B streams top→bottom (purple), accumulators stay put (green).</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 5: Output-stationary -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s5">
+  <div class="slide-number">05</div>
+  <h2>Output-stationary array — the TPU pattern</h2>
+  <p>Used by every Google TPU (v1 onwards), AWS Trainium / Inferentia, and most "MXU-class" datacentre accelerators.</p>
+
+  <h3>Cycle-by-cycle</h3>
+  <ul>
+    <li><strong>A flows left → right.</strong> Each PE forwards <code>a_in</code> to its eastern neighbour on every cycle.</li>
+    <li><strong>B flows top → bottom.</strong> Each PE forwards <code>w_in</code> to its southern neighbour.</li>
+    <li><strong>The accumulator stays.</strong> PE(r, c) computes <code>C[r,c] += A[r,k] * B[k,c]</code> over K cycles — hence "output stationary".</li>
+  </ul>
+
+  <p>This repo's <code>mmul_pe.sv</code> is the canonical PE: one signed multiply, one signed add, three flops (a-skew, w-skew, accumulator). <code>mmul_systolic_os.sv</code> instances <code>ROWS·COLS</code> of them with edge wiring.</p>
+
+  <div class="code-block">
+    <div class="code-header">rtl/mmul_pe.sv — single PE</div>
+<pre><code><span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+  <span class="kw">if</span> (!rst_n)         { a_out, w_out, acc_out } &lt;= <span class="num">'0</span>;
+  <span class="kw">else if</span> (clear)     { a_out, w_out, acc_out } &lt;= <span class="num">'0</span>;
+  <span class="kw">else if</span> (enable) <span class="kw">begin</span>
+    a_out   &lt;= a_in;                     <span class="cm">// skew right</span>
+    w_out   &lt;= w_in;                     <span class="cm">// skew down</span>
+    acc_out &lt;= acc_out + acc_t'(a_in * w_in);
+  <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+  </div>
+
+  <h3>Latency</h3>
+  <ul>
+    <li><strong>Fill</strong>: <code>ROWS + COLS − 1</code> cycles before every PE is computing.</li>
+    <li><strong>Steady</strong>: <code>K</code> cycles producing R·C MACs each cycle.</li>
+    <li><strong>Drain</strong>: same again. Result: total = <code>K + R + C − 2</code>.</li>
+  </ul>
+
+  <p><strong>The "fill bubble" is the cost</strong>. For 256×256 with K=64 (typical attention head), 511 cycles of fill+drain wrap 64 productive cycles — 87% bubble. Real TPU code amortises this by chaining many K-tiles back-to-back without draining.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 6: Weight-stationary -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s6">
+  <div class="slide-number">06</div>
+  <h2>Weight-stationary array — the edge / inference pattern</h2>
+  <p>Used by NVDLA, Apple Neural Engine, ARM Ethos-N, Hailo-8, Qualcomm Hexagon NPU, and most mobile / edge accelerators.</p>
+
+  <h3>Idea</h3>
+  <p>For inference, weights are <em>fixed</em> and reused across many activations (especially across a batch). So <strong>load weights once, hold them, stream activations</strong>. Partial sums spill to a separate buffer.</p>
+
+  <div class="diagram-grid cols-2">
+    <div class="diagram-panel accent-border">
+      <h4>Output-stationary</h4>
+      <p style="font-size: 0.85rem;">acc lives in PE; both operands stream. Best for training (activations and weights are equally hot). Used by TPU, Trainium.</p>
+    </div>
+    <div class="diagram-panel accent-border">
+      <h4>Weight-stationary</h4>
+      <p style="font-size: 0.85rem;">B held in PE registers; A streams; partial sums move out per cycle. Best for inference where weights >> activations × batch. Used by edge NPUs.</p>
+    </div>
+  </div>
+
+  <h3>The cost ledger</h3>
+  <ul>
+    <li><strong>Pro:</strong> Weights never re-fetched — energy directly on the budget. Lower latency (no fill-skew).</li>
+    <li><strong>Con:</strong> Higher operand-bandwidth per cycle: M·N reads of activations and acc-spills per step.</li>
+    <li><strong>Con:</strong> Weight reload is paid every fresh tile — bad for very small networks but invisible for layer-by-layer streaming.</li>
+  </ul>
+
+  <p>This repo's <code>mmul_weight_stationary.sv</code> implements an <code>M × N</code> register-file held over <code>K</code> compute steps; a separate <code>load_w</code> handshake fills it from the off-chip weight stream.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 7: Input / Row stationary -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s7">
+  <div class="slide-number">07</div>
+  <h2>Input-stationary &amp; row-stationary (Eyeriss)</h2>
+  <p>Two more dataflows for completeness — both more specialised, both interesting.</p>
+
+  <h3>Input-stationary</h3>
+  <p>Activations pinned, weights stream, partial sums flow. Less common in dense matmul, but appears in some <em>training</em> accelerators where the activation reuse pattern of <code>∂L/∂W = A^T · ∂L/∂Y</code> dominates the gradient pass.</p>
+
+  <h3>Row-stationary — Eyeriss (MIT, ISCA 2016)</h3>
+  <p>The most thoughtful of the four. Maps a 1-D row of CNN filter weights onto a single PE; ifmap rows stream horizontally; partial sums flow vertically. Sze and Chen showed this maximises <strong>all three</strong> reuse patterns simultaneously — weights, ifmaps, and psums.</p>
+  <ul>
+    <li>168 PEs, 12×14 array, 108 KB GLB</li>
+    <li>1.4–2.5× more energy-efficient than weight- or output-stationary on AlexNet</li>
+    <li>Idea generalises to any K-loop where the inner operand is a small spatial filter</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-label">Practical note</div>
+    <p>The dataflow choice is a <em>workload-dependent</em> decision. Modern compilers (XLA for TPU, CUTLASS for NVIDIA, TT-Metalium for Tenstorrent) re-tile across multiple physical arrays so the user-facing kernel is dataflow-agnostic — but underneath, every implementation makes a choice.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 8: Dot-product trees / Tensor Cores -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s8">
+  <div class="slide-number">08</div>
+  <h2>Dot-product trees — NVIDIA Tensor Cores</h2>
+  <p>NVIDIA's Tensor Core is conceptually <strong>not</strong> a Kung-style systolic. It's a <strong>parallel reduction tree</strong>: K multipliers feeding an adder tree, with operands fetched per warp from the register file.</p>
+
+  <h3>1st-gen V100 Tensor Core (2017)</h3>
+  <ul>
+    <li>Computes <code>D = A·B + C</code> on 4×4 matrices.</li>
+    <li>A, B FP16; C, D FP16 or FP32.</li>
+    <li><strong>64 FMAs per clock per TC</strong>, 8 TCs per SM, 84 SMs ⇒ 125 TFLOPS FP16 / V100.</li>
+  </ul>
+
+  <h3>Why a tree, not an array?</h3>
+  <ul>
+    <li><strong>Lower latency.</strong> <code>O(log K)</code> adder-tree depth vs <code>O(K + R + C)</code> in a systolic. Latency matters for warp-level scheduling.</li>
+    <li><strong>Flexible shapes.</strong> NVIDIA exposes <code>mma.sync</code> shapes like 16×8×16 — easy to compose at the warp level.</li>
+    <li><strong>Higher SRAM bandwidth required.</strong> The tree consumes K operand pairs per cycle from the register file, with no skew amortisation.</li>
+  </ul>
+
+  <p>This repo's <code>mmul_dotproduct.sv</code> is a single-cycle K-wide combinational dot product — the simplest model of one Tensor-Core lane. With <code>K = 8</code> it computes a Q8.8 inner product into a 32-bit accumulator combinationally.</p>
+
+  <h3>Generation by generation</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Gen</th><th>GPU</th><th>New formats</th><th>Peak (per GPU, dense)</th></tr>
+    <tr><td>1st</td><td>V100 (2017)</td><td>FP16</td><td>125 TFLOPS</td></tr>
+    <tr><td>2nd</td><td>T4 / RTX 20 (2018)</td><td>INT8, INT4</td><td>130 TOPS INT8</td></tr>
+    <tr><td>3rd</td><td>A100 (2020)</td><td>TF32, BF16, FP64, 2:4 sparsity</td><td>312 TFLOPS BF16</td></tr>
+    <tr><td>4th</td><td>H100 (2022)</td><td><strong>FP8 (E4M3, E5M2)</strong>, TMA</td><td>1979 TFLOPS FP8</td></tr>
+    <tr><td>5th</td><td>B200 (2024)</td><td><strong>FP4, NVFP4, MXFP</strong></td><td>20 PFLOPS FP4</td></tr>
+  </table></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 9: Transformer mapping -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s9">
+  <div class="slide-number">09</div>
+  <h2>What does an MMUL run, in a Transformer?</h2>
+  <p>Almost all of it. A typical decoder-only LLM forward pass spends <strong>≥99%</strong> of its FLOPs in dense matrix multiplications — so the MMUL is the part of the chip that decides how fast a Llama or GPT runs.</p>
+
+  <h3>Per-block FLOP map (decoder layer, sequence length S, model dim D, head dim d, FFN dim 4D)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operation</th><th>Shape</th><th>FLOPs</th><th>On the MMUL?</th><th>Comment</th></tr>
+    <tr><td><strong>Token embedding</strong></td><td>S × V → S × D</td><td>—</td><td>No (gather)</td><td>Indexed table lookup; some chips fuse as one-hot · W</td></tr>
+    <tr><td><strong>RMSNorm / LayerNorm</strong></td><td>S × D</td><td>O(S·D)</td><td>No</td><td>Reductions + elementwise; vector lane</td></tr>
+    <tr><td><strong>Q projection</strong></td><td>S × D · D × D</td><td>2·S·D²</td><td><strong>Yes</strong></td><td>Dense GEMM</td></tr>
+    <tr><td><strong>K projection</strong></td><td>S × D · D × D</td><td>2·S·D²</td><td><strong>Yes</strong></td><td>Dense GEMM (smaller for GQA / MQA)</td></tr>
+    <tr><td><strong>V projection</strong></td><td>S × D · D × D</td><td>2·S·D²</td><td><strong>Yes</strong></td><td>Dense GEMM</td></tr>
+    <tr><td><strong>Q · K<sup>T</sup> (scores)</strong></td><td>S × d · d × S (per head)</td><td>2·S²·D</td><td><strong>Yes</strong></td><td>"Batched" GEMM, one per head; quadratic in S</td></tr>
+    <tr><td><strong>scale + softmax</strong></td><td>S × S</td><td>O(S²)</td><td>No</td><td>Subtract max, exp, normalise — vector lane / SFU</td></tr>
+    <tr><td><strong>scores · V</strong></td><td>S × S · S × d</td><td>2·S²·D</td><td><strong>Yes</strong></td><td>Batched GEMM</td></tr>
+    <tr><td><strong>Output projection W<sub>O</sub></strong></td><td>S × D · D × D</td><td>2·S·D²</td><td><strong>Yes</strong></td><td>Dense GEMM</td></tr>
+    <tr><td><strong>FFN up + gate (SwiGLU)</strong></td><td>S × D · D × 4D (×2)</td><td>16·S·D²</td><td><strong>Yes</strong></td><td>Two GEMMs; the largest in the layer</td></tr>
+    <tr><td><strong>SiLU / GeLU</strong></td><td>S × 4D</td><td>O(S·D)</td><td>No</td><td>Elementwise; SFU</td></tr>
+    <tr><td><strong>FFN down</strong></td><td>S × 4D · 4D × D</td><td>8·S·D²</td><td><strong>Yes</strong></td><td>Dense GEMM</td></tr>
+    <tr><td><strong>Residual add</strong></td><td>S × D</td><td>O(S·D)</td><td>No</td><td>Elementwise add</td></tr>
+    <tr><td><strong>RoPE rotation</strong></td><td>S × D</td><td>O(S·D)</td><td>No</td><td>2-element rotations on Q,K (vector lane)</td></tr>
+    <tr><td><strong>LM head logits</strong></td><td>S × D · D × V</td><td>2·S·D·V</td><td><strong>Yes</strong></td><td>Final dense GEMM (often largest matrix in the model)</td></tr>
+  </table></div>
+
+  <h3>What this looks like on H100 / B200 silicon</h3>
+  <ul>
+    <li><strong>Tensor Cores</strong> run all the GEMMs above (highlighted "Yes"). Tensor-Core lanes are idle during softmax, RMSNorm, RoPE, and SiLU — those run on the SM's CUDA cores or Special Function Units.</li>
+    <li><strong>FlashAttention 2/3</strong> fuses Q·K<sup>T</sup>, softmax, and scores·V into a single kernel that streams partial maxes — keeping data in registers and SRAM and avoiding the materialised S×S score matrix. The MMUL is still doing the GEMMs, but they're now <em>tiled and chained</em> instead of serialised through HBM.</li>
+    <li><strong>KV-cache</strong>: the K and V tensors of <em>every previous token</em> are held in HBM (often quantised to FP8 or INT4). At decode time, generating one new token reads MS·D bytes per layer — for a 70B model with 100k context, that's tens of GB <em>per token</em>. Decode is memory-bound; the MMUL runs at 1–3% utilisation.</li>
+  </ul>
+
+  <h3>Two regimes that matter for hardware</h3>
+  <div class="diagram-grid cols-2">
+    <div class="diagram-panel accent-border">
+      <h4>Prefill / training (compute-bound)</h4>
+      <p style="font-size: 0.85rem;">S = 1024+ tokens at once. GEMM shapes (M=N=K) are large; AI is high; MMUL utilisation 50–85%. This is what sales decks measure.</p>
+    </div>
+    <div class="diagram-panel accent-border">
+      <h4>Decode / single-token (memory-bound)</h4>
+      <p style="font-size: 0.85rem;">S = 1. Every projection is a tall-skinny GEMM (1 × D · D × D); arithmetic intensity drops to ~D / 2 ≈ 4096 / 2 ≈ 2000, but the actual constraint is HBM bandwidth for weights and KV. MMUL utilisation often &lt; 5%. This is why "tokens / sec" benchmarks look so different from peak TFLOPS.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-label">Practical takeaway</div>
+    <p>For training, the MMUL is genuinely the bottleneck — and chasing FP4 / FP8 / NVFP4 is the right thing. For LLM inference at batch=1 you can put a 20-PFLOP B200 next to a 1-PFLOP MI300X and they will both be limited by HBM bandwidth — which is why <em>memory bandwidth</em> (not peak TFLOPS) drives every modern inference card's spec sheet.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 10: Number formats -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s10">
+  <div class="slide-number">10</div>
+  <h2>Number formats: from FP32 to FP4</h2>
+  <p>Halving the bit-width of the multiplier is approximately <strong>4× fewer transistors</strong> (multiplier area is quadratic in mantissa width) and <strong>~2× lower energy per MAC</strong>. Every generation has chased this curve.</p>
+
+  <div class="table-wrap"><table>
+    <tr><th>Format</th><th>Bits</th><th>S/E/M</th><th>Range (≈)</th><th>Used in</th></tr>
+    <tr><td><strong>FP32</strong> (IEEE 754)</td><td>32</td><td>1/8/23</td><td>±3.4e38</td><td>Baseline, accumulators everywhere</td></tr>
+    <tr><td><strong>TF32</strong> (NVIDIA)</td><td>19 stored as 32</td><td>1/8/10</td><td>same as FP32</td><td>A100+ TC, FP32 in/out</td></tr>
+    <tr><td><strong>FP16</strong> (IEEE binary16)</td><td>16</td><td>1/5/10</td><td>±65,504</td><td>V100 onwards</td></tr>
+    <tr><td><strong>BF16</strong></td><td>16</td><td>1/8/7</td><td>±3.4e38</td><td>TPU v2+, all modern; "FP32 truncated"</td></tr>
+    <tr><td><strong>FP8 E4M3</strong></td><td>8</td><td>1/4/3</td><td>±448</td><td>H100, MI300X — fwd weights/activations</td></tr>
+    <tr><td><strong>FP8 E5M2</strong></td><td>8</td><td>1/5/2</td><td>±57,344</td><td>H100, MI300X — gradients</td></tr>
+    <tr><td><strong>FP6 E3M2</strong></td><td>6</td><td>1/3/2</td><td>±28</td><td>OCP MX, Blackwell</td></tr>
+    <tr><td><strong>FP4 E2M1</strong></td><td>4</td><td>1/2/1</td><td>±6</td><td>OCP MX, Blackwell, MI355X</td></tr>
+    <tr><td><strong>INT8 / INT4</strong></td><td>8 / 4</td><td>—</td><td>±127 / ±7</td><td>TPU v1, NPUs, quantised inference</td></tr>
+  </table></div>
+
+  <h3>The two design choices that matter</h3>
+  <ul>
+    <li><strong>Range vs precision.</strong> BF16 keeps FP32's 8-bit exponent (handles gradient outliers) at the cost of a 7-bit mantissa. FP16 trades the other way — better mantissa, narrow range, requires loss-scaling for training.</li>
+    <li><strong>What to do at FP8 and below.</strong> 8-bit mantissa is too small for whole-tensor scaling. The fix: per-block scales — see next slide.</li>
+  </ul>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 11: MXFP / NVFP4 -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s11">
+  <div class="slide-number">11</div>
+  <h2>Block-scaled microformats — MXFP &amp; NVFP4</h2>
+  <p>Below FP8, the dynamic range of any single element is too small to cover a full tensor. The industry's answer: <strong>group elements into a small block, give each block a shared exponent</strong>.</p>
+
+  <h3>OCP MX (Microscaling) — September 2023</h3>
+  <ul>
+    <li><strong>Block size</strong>: <code>k = 32</code> elements.</li>
+    <li><strong>Scale</strong>: <code>E8M0</code> — 8-bit unsigned biased exponent only, no sign or mantissa. Value = 2<sup>scale − 127</sup>.</li>
+    <li><strong>Element types</strong>: MXFP8 (E4M3 or E5M2), MXFP6 (E3M2 or E2M3), MXFP4 (E2M1), MXINT8.</li>
+    <li><strong>Storage</strong>: MXFP8 block = 32×8 + 8 = 264 bits (33 B). MXFP4 block = 136 bits (17 B).</li>
+    <li>Backed by AMD, ARM, Intel, Meta, Microsoft, NVIDIA, Qualcomm.</li>
+  </ul>
+
+  <h3>NVFP4 — Blackwell-specific</h3>
+  <ul>
+    <li><strong>Block size</strong>: <code>k = 16</code> (vs OCP's 32) — finer-grained scaling.</li>
+    <li><strong>Scale type</strong>: <code>FP8 E4M3</code> — mantissa bits in the scale itself, much better SNR near the boundary.</li>
+    <li>Plus a <strong>per-tensor FP32 global scale</strong>.</li>
+    <li>NVIDIA's data shows NVFP4 within ~0.5% of FP8 perplexity on Llama-class models.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-label">Hardware impact</div>
+    <p>An MXFP MAC is <strong>not</strong> just a small multiplier. The scale must be fanned out across the block on every cycle and re-applied to the partial sum. Blackwell adds a dedicated <em>scale broadcast network</em> running in parallel with the main dot-product fabric — silicon area you would not see in a pre-2023 design.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 12: Stochastic rounding & accumulation -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s12">
+  <div class="slide-number">12</div>
+  <h2>Stochastic rounding &amp; mixed accumulation</h2>
+
+  <h3>The systematic-bias problem</h3>
+  <p>Round-to-nearest applied many times is <em>biased</em>. Adding <code>1.0 + 0.49</code> a million times in FP4 gives 1.0, not 491,490. In low-precision <em>training</em>, this kills convergence.</p>
+
+  <h3>Stochastic rounding</h3>
+  <ul>
+    <li>Round up with probability proportional to the fractional part.</li>
+    <li>Statistically unbiased — the systematic error goes away even at FP4.</li>
+    <li>Native on Graphcore IPU (since Colossus); supported in NVIDIA Hopper/Blackwell on the FP8 / FP4 paths.</li>
+  </ul>
+
+  <h3>Two-stage accumulation</h3>
+  <p>Keep the multiplier narrow, keep the accumulator wide:</p>
+  <ul>
+    <li>TPU MXU: <strong>BF16 multiply</strong>, <strong>FP32 accumulate</strong>.</li>
+    <li>H100 FP8 path: <strong>FP8 mul</strong>, <strong>FP32 accum</strong>, with a periodic FP32 → BF16 spill.</li>
+    <li>NVFP4: <strong>FP4 mul</strong>, <strong>FP32 accum</strong>, with the per-block E4M3 scale applied once per K=16 step.</li>
+  </ul>
+
+  <p>Without this, every halving of bit-width would silently halve model quality. With it, the chip behaves numerically like a much wider design at a fraction of the area.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 13: TPU lineage -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s13">
+  <div class="slide-number">13</div>
+  <h2>Real systems — Google TPU lineage</h2>
+
+  <div class="table-wrap"><table>
+    <tr><th>Device</th><th>Year</th><th>Process</th><th>MXU shape</th><th>Datatype</th><th>Peak / chip</th></tr>
+    <tr><td><strong>TPU v1</strong></td><td>2015</td><td>28 nm</td><td>256×256</td><td>INT8 mul / INT32 acc</td><td><strong>92 TOPS @ 700 MHz</strong></td></tr>
+    <tr><td>TPU v2</td><td>2017</td><td>—</td><td>128×128 (×2 cores)</td><td>BF16 mul / FP32 acc</td><td>~46 TFLOPS BF16</td></tr>
+    <tr><td>TPU v3</td><td>2018</td><td>—</td><td>128×128 (×2)</td><td>BF16</td><td>~123 TFLOPS</td></tr>
+    <tr><td>TPU v4</td><td>2021</td><td>7 nm</td><td>4× 128×128</td><td>BF16, INT8</td><td>275 TFLOPS BF16, OCS interconnect</td></tr>
+    <tr><td>TPU v5p</td><td>2023</td><td>5 nm</td><td>128×128</td><td>BF16, INT8</td><td>~459 TFLOPS BF16</td></tr>
+    <tr><td><strong>TPU v6e Trillium</strong></td><td>2024</td><td>4 nm</td><td><strong>256×256</strong></td><td>BF16, INT8</td><td>~926 TFLOPS BF16</td></tr>
+    <tr><td>TPU v7 Ironwood</td><td>2025</td><td>—</td><td>—</td><td>FP8</td><td>~4.6 PFLOPS FP8</td></tr>
+  </table></div>
+
+  <h3>Things to notice</h3>
+  <ul>
+    <li><strong>TPU v1 was INT8-only.</strong> Designed strictly for inference under a 99th-percentile latency SLA.</li>
+    <li><strong>v2 → v6e all stayed at 128×128</strong>. Then Trillium <em>doubled</em> the MXU side to 256×256 — first resize since 2017.</li>
+    <li><strong>The MXU is one part of the chip.</strong> v4 has 32 MiB CMEM, 32 GiB HBM, and the optical-circuit-switched (OCS) datacentre interconnect that lets you reshape pods at runtime.</li>
+    <li><strong>Software is half the architecture.</strong> XLA has been doing tile-shape optimisation for nine years — without it Trillium's bigger MXU would routinely run below 50% utilisation.</li>
+  </ul>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 14: NVIDIA -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s14">
+  <div class="slide-number">14</div>
+  <h2>Real systems — NVIDIA Tensor Cores</h2>
+
+  <div class="diagram-grid cols-2">
+    <div class="diagram-panel accent-border">
+      <h4>H100 (Hopper, 2022)</h4>
+      <ul style="font-size: 0.85rem;">
+        <li>4N TSMC, 80 GB HBM3</li>
+        <li>4th-gen TC, FP8 (E4M3 + E5M2)</li>
+        <li><strong>1979 TFLOPS FP8 dense</strong> / 3958 sparse</li>
+        <li>Transformer Engine: per-tile auto-scaling, FP8 ↔ BF16 paths</li>
+        <li>TMA: async multi-dim DMA into shared mem</li>
+      </ul>
+    </div>
+    <div class="diagram-panel accent-border">
+      <h4>B200 (Blackwell, 2024)</h4>
+      <ul style="font-size: 0.85rem;">
+        <li>4NP TSMC, dual-die, 192 GB HBM3e, 8 TB/s</li>
+        <li>5th-gen TC + TMEM (256 KB/SM tensor-private mem)</li>
+        <li><strong>20 PFLOPS FP4 dense</strong> / 40 sparse</li>
+        <li>NVFP4: 16-element block, FP8 E4M3 scale</li>
+        <li>FP6 + MXFP added in addition to FP4</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>What changed across generations</h3>
+  <ul>
+    <li><strong>Volta → Ampere</strong>: format expansion (FP16 → BF16 / TF32 / INT8 / FP64) and 2:4 sparsity.</li>
+    <li><strong>Ampere → Hopper</strong>: FP8 + Transformer Engine + TMA — async data movement decoupled from warps.</li>
+    <li><strong>Hopper → Blackwell</strong>: FP4/FP6/MXFP + TMEM (decoupled MMA inputs from shared memory).</li>
+    <li>The pattern: each generation adds a narrower datatype, plus one new <em>memory</em> primitive.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-label">Common confusion</div>
+    <p>"H100 does 989 TFLOPS" is the <strong>FP16/BF16</strong> figure. The <strong>FP8 dense</strong> figure is 1979 TFLOPS. Many tech press articles cite the BF16 figure when comparing to TPU/AMD FP8 numbers — apples vs oranges.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 15: Other systems -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s15">
+  <div class="slide-number">15</div>
+  <h2>Real systems — the rest of the field</h2>
+
+  <div class="table-wrap"><table>
+    <tr><th>Device</th><th>Topology</th><th>Datatype</th><th>Peak</th><th>On-chip mem</th></tr>
+    <tr><td><strong>Cerebras WSE-3</strong></td><td>900K cores, full 300 mm wafer</td><td>FP16, BF16, FP8</td><td>125 PF (sparse FP16)</td><td><strong>44 GB SRAM</strong>, 21 PB/s</td></tr>
+    <tr><td><strong>Groq LPU</strong></td><td>Functional slices, deterministic</td><td>FP16, INT8</td><td>188 TF FP16 / 750 TOPS INT8</td><td>230 MB SRAM, <strong>no DRAM</strong></td></tr>
+    <tr><td><strong>Tesla Dojo D1</strong></td><td>354 nodes/chip × 25-chip tile</td><td>FP32, BF16, CFloat8</td><td>9 PF BF16 / training tile</td><td>11 GB SRAM/tile</td></tr>
+    <tr><td><strong>AWS Trainium2</strong></td><td>128×128 systolic Tensor Engine</td><td>BF16, FP8</td><td>~667 TFLOPS BF16</td><td>96 GB HBM3e</td></tr>
+    <tr><td><strong>Apple M4 ANE</strong></td><td>16-core, weight-stationary</td><td>FP16 native</td><td>38 TOPS (= FP16 × 2 by convention)</td><td>shared with SoC</td></tr>
+    <tr><td><strong>Intel AMX</strong></td><td>8 tile-regs per core</td><td>BF16, INT8 (+FP16 on Granite Rapids)</td><td>~1024 INT8 MACs/cyc/core</td><td>per-core</td></tr>
+    <tr><td><strong>ARM SME / SME2</strong></td><td>Streaming-SVE ZA tile</td><td>FP32, BF16, FP16, INT8 (+2:4 in 2024)</td><td>VL-dependent</td><td>per-core</td></tr>
+    <tr><td><strong>Tenstorrent Blackhole</strong></td><td>140 Tensix++ cores</td><td>FP8/16, BFP2/4/8</td><td>774 TF FP8</td><td>210 MB SRAM</td></tr>
+    <tr><td><strong>Etched Sohu</strong></td><td>Hardwired transformer dataflow</td><td>FP8 (vendor-claimed)</td><td>500K tok/s Llama-70B (claim)</td><td>144 GB HBM3e</td></tr>
+  </table></div>
+
+  <h3>Three philosophies on display</h3>
+  <ul>
+    <li><strong>Datacentre generality</strong> (NVIDIA, TPU, AMD, Trainium): big array + hierarchical memory, run anything.</li>
+    <li><strong>Determinism &amp; in-memory</strong> (Groq, Cerebras): banish DRAM, schedule everything ahead of time. Spectacular for inference latency on supported workloads, brittle elsewhere.</li>
+    <li><strong>Workload specialisation</strong> (Etched Sohu, Apple ANE, MatX): hardwire one model class, claw back area-efficiency. The asymptote of "do less, faster".</li>
+  </ul>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 16: Memory hierarchy -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s16">
+  <div class="slide-number">16</div>
+  <h2>Memory hierarchy — what feeds the MMUL</h2>
+  <p>An MMUL is a giant operand-consumer. A 256×256 BF16 array at 1 GHz needs 256 KB/cycle of A operands and 256 KB/cycle of B. That's <strong>~256 TB/s</strong> of pure operand bandwidth. No HBM stack delivers that — it has to come from on-die SRAM.</p>
+
+  <h3>The hierarchy you actually find on a modern AI chip</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Level</th><th>Capacity</th><th>BW</th><th>Latency</th><th>Energy / 32-bit access</th></tr>
+    <tr><td>PE register / accumulator</td><td>tens of bytes</td><td>1 PE/cyc</td><td>0 cyc</td><td>~0.1 pJ</td></tr>
+    <tr><td>Scratchpad SRAM (TMEM, CMEM, GLB)</td><td>0.1 – 1 MB</td><td>1 op/cyc/bank</td><td>1–4 cyc</td><td>~1 pJ</td></tr>
+    <tr><td>L2 / Unified Buffer</td><td>10s of MB (50 MB on H100)</td><td>~5–10 TB/s</td><td>20–60 cyc</td><td>~5 pJ</td></tr>
+    <tr><td>HBM3 / HBM3e</td><td>tens to hundreds of GB</td><td>2 – 8 TB/s</td><td>200–500 cyc</td><td>~7 pJ/bit (~28 pJ/word)</td></tr>
+    <tr><td>NVLink / OCS / NeuronLink</td><td>off-package</td><td>~900 GB/s (NVL5) / per direction</td><td>~µs</td><td>much higher</td></tr>
+    <tr><td>Off-rack network (Ethernet/IB)</td><td>cluster-wide</td><td>200–800 Gbps/link</td><td>tens of µs</td><td>highest</td></tr>
+  </table></div>
+
+  <h3>The structures you see on every modern AI chip</h3>
+  <ul>
+    <li><strong>Activation buffer / unified buffer</strong>: feeds A operands. TPU v1's "UB" was 24 MiB; H100 SMEM is 228 KB/SM × 132 SMs ≈ 30 MB.</li>
+    <li><strong>Weight buffer / weight queue</strong>: feeds B operands. Often double-buffered so the next tile's weights load while the current tile computes.</li>
+    <li><strong>Accumulator buffer</strong>: holds partial sums, often 32-bit even when operands are FP4/INT8. TPU v1 had 4 MiB of accumulators.</li>
+    <li><strong>Async DMA engines</strong>: TMA on Hopper, the TPU v4 "VMEM async" — move tiles between HBM and SRAM without consuming compute lanes.</li>
+    <li><strong>Tensor-private memory</strong>: TMEM on Blackwell — 256 KB/SM dedicated to tensor-core operands so SMEM pressure doesn't strand the array.</li>
+  </ul>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 17: Are caches useful? -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s17">
+  <div class="slide-number">17</div>
+  <h2>Are caches useful?</h2>
+  <p>Short answer: <strong>not in the CPU sense — and modern accelerators have largely abandoned them in favour of explicitly-managed scratchpads.</strong></p>
+
+  <h3>Why CPU-style caches don't fit an MMUL</h3>
+  <ul>
+    <li><strong>Access patterns are statically known.</strong> The compiler knows exactly which weight tile and which activation tile feed the next K-step. Tag arrays, replacement policies, and miss-handling logic are dead silicon — pay the area for the data, not the bookkeeping.</li>
+    <li><strong>Tag energy is comparable to data energy</strong> at small block sizes. A traditional cache spends ~30% of access energy on tag lookup. A scratchpad is just data.</li>
+    <li><strong>Coherence is unwanted.</strong> Weights are read-only during a forward pass. There's no producer-consumer race to track.</li>
+    <li><strong>Capacity efficiency.</strong> A 50 MB L2 with 25% tag/coherence overhead becomes 50 MB of usable scratchpad in an accelerator design.</li>
+  </ul>
+
+  <h3>Where caches DO appear on modern AI chips</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Chip</th><th>Cache?</th><th>What it actually is</th></tr>
+    <tr><td>NVIDIA H100</td><td>50 MB L2 ✓</td><td>True coherent cache — needed because GPU runs general CUDA code, not only matmul</td></tr>
+    <tr><td>NVIDIA B200</td><td>L2 + <strong>TMEM</strong> ✓</td><td>L2 stays; TMEM is a scratchpad, software-managed</td></tr>
+    <tr><td>Google TPU v1–v6</td><td><strong>No cache</strong></td><td>Unified Buffer + CMEM, both software-managed scratchpads</td></tr>
+    <tr><td>Cerebras WSE-3</td><td>No cache</td><td>44 GB on-die SRAM, all explicitly addressed</td></tr>
+    <tr><td>Groq LPU</td><td>No cache</td><td>230 MB SRAM, deterministic compiler-scheduled access</td></tr>
+    <tr><td>Apple ANE / ARM Ethos-N</td><td>No cache</td><td>Tile buffers + DMA</td></tr>
+  </table></div>
+
+  <h3>Why GPUs keep an L2</h3>
+  <p>The H100's 50 MB L2 isn't really there to serve the Tensor Core MMUL — it's there to serve the rest of the SM (CUDA cores, texture units, atomics, indirect memory accesses). On dedicated AI chips that don't run general code, the L2 budget gets reallocated as larger user-visible scratchpad.</p>
+
+  <div class="callout">
+    <div class="callout-label">The system-level implication</div>
+    <p>Putting an MMUL into a CPU socket (Intel AMX, ARM SME) inherits a CPU's cache hierarchy whether or not it's optimal. Intel AMX tile loads go through L1d/L2/L3 — convenient for programmers, less efficient than a dedicated tile RF would be. AMX is roughly half as energy-efficient per FLOP as a dedicated NPU at the same node, and the cache hierarchy is the main reason.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 18: Performance -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s18">
+  <div class="slide-number">18</div>
+  <h2>Performance: peak vs sustained</h2>
+  <p>The peak number on the datasheet is <em>the multiplier count × clock frequency × ops per multiplier × 2 (for FMA)</em>. Real workloads achieve 30–70% of that.</p>
+
+  <h3>What eats the gap</h3>
+  <ul>
+    <li><strong>Tile-shape mismatch.</strong> A 256×256 MXU running a 192-dim attention head wastes 64 columns. Trillium's bigger MXU buys peak FLOPS at the cost of small-tile utilisation.</li>
+    <li><strong>Fill / drain bubbles.</strong> A 64-step K loop on a 256×256 array spends 511 of its 575 cycles filling or draining unless multiple tiles are chained.</li>
+    <li><strong>Memory-bound phases.</strong> Attention's K/V projection is GEMM-heavy; the softmax is bandwidth-bound; the output projection is GEMM-heavy again. Peak FLOPS is invisible to the bandwidth-bound stretches.</li>
+    <li><strong>Quantization overhead.</strong> NVFP4 dequantise + per-block scale-apply is a non-trivial fraction of the FP4 path's pipeline.</li>
+    <li><strong>Synchronisation.</strong> Cross-array reductions and all-reduces between chips set the floor.</li>
+  </ul>
+
+  <h3>Indicative numbers from public benchmarks</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Workload</th><th>Hardware</th><th>Peak</th><th>Sustained</th><th>%</th></tr>
+    <tr><td>GPT-3 175B training (BF16)</td><td>A100</td><td>312 TFLOPS</td><td>~150–180 TFLOPS</td><td>50–58%</td></tr>
+    <tr><td>Llama-70B training (BF16)</td><td>H100</td><td>989 TFLOPS</td><td>~400–500 TFLOPS</td><td>40–50%</td></tr>
+    <tr><td>Llama-70B training (FP8)</td><td>H100</td><td>1979 TFLOPS</td><td>~700–900 TFLOPS</td><td>35–45%</td></tr>
+    <tr><td>Llama-70B inference (single-batch)</td><td>H100</td><td>1979 TFLOPS</td><td>~10–30 TFLOPS</td><td>memory-bound</td></tr>
+    <tr><td>GEMM (M=N=K=8192) BF16</td><td>H100</td><td>989 TFLOPS</td><td>~830 TFLOPS</td><td>~85%</td></tr>
+  </table></div>
+
+  <p>The 5× gap between "MoEFLOPS marketing slide" and "actual throughput on your model" is not bad design — it's the cost of running real workloads on real memory hierarchies. Compiler engineering closes most of it.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 19: Power -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s19">
+  <div class="slide-number">19</div>
+  <h2>Power: every joule comes from somewhere</h2>
+
+  <h3>Where the watts go on an H100</h3>
+  <ul>
+    <li><strong>Tensor Cores</strong>: ~30–40% of die power at full FP8 dense GEMM.</li>
+    <li><strong>Memory hierarchy</strong>: ~25–35% — HBM PHYs, L2, SMEM banks, DMA engines.</li>
+    <li><strong>NVLink / interconnect</strong>: ~10–15% on a SXM5 (~700 W package).</li>
+    <li><strong>CUDA cores, schedulers, fixed-function</strong>: ~10–15%.</li>
+    <li><strong>Static / leakage</strong>: ~5–10% at modern process nodes.</li>
+  </ul>
+
+  <h3>Energy per useful operation — order of magnitude</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Format</th><th>Multiplier energy (45 nm baseline)</th><th>Roughly at TSMC 4N</th></tr>
+    <tr><td>FP32 MAC</td><td>~4.6 pJ</td><td>~0.9 pJ</td></tr>
+    <tr><td>BF16 MAC</td><td>~1.5 pJ</td><td>~0.3 pJ</td></tr>
+    <tr><td>FP8 MAC</td><td>~0.5 pJ</td><td>~0.1 pJ</td></tr>
+    <tr><td>FP4 MAC</td><td>~0.15 pJ</td><td>~0.03 pJ</td></tr>
+    <tr><td>HBM3 access (per 32-bit word)</td><td>~28 pJ</td><td>~28 pJ (PHY-dominated, weak process scaling)</td></tr>
+  </table></div>
+
+  <p>Two things to notice: (1) <strong>HBM access does not scale with process node</strong> — it's PHY/wire-dominated. So as compute energy per MAC drops, the relative cost of operand movement becomes <em>higher</em>. (2) The whole point of MX/FP4 is to get the multiplier energy below the operand-movement energy that flanks it.</p>
+
+  <h3>Package power is the hard limit</h3>
+  <ul>
+    <li>H100 SXM5: 700 W TDP</li>
+    <li>B200 SXM6: 1000 W TDP</li>
+    <li>B200 NVL72 rack: <strong>120 kW per rack</strong></li>
+    <li>TPU v5p tray: ~15 kW liquid-cooled</li>
+    <li>Tesla Dojo training tile (25 chips): 15 kW liquid-cooled</li>
+  </ul>
+  <p>Above ~700 W per package, air cooling gives up. Hence the industry-wide pivot to liquid-cooled cabinets in 2024–2026.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 20: Thermals & PDN -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s20">
+  <div class="slide-number">20</div>
+  <h2>Thermals &amp; power delivery</h2>
+  <p>A modern MMUL package consumes more current than an early-2000s consumer CPU's whole motherboard. The interesting engineering isn't in the array — it's in <em>getting the joules in and the heat out</em>.</p>
+
+  <h3>Power delivery network (PDN)</h3>
+  <ul>
+    <li><strong>Voltage</strong>: typical core rail 0.75–0.85 V.</li>
+    <li><strong>Current</strong>: at 1000 W and 0.8 V → <strong>1250 A</strong> through the package socket. NVIDIA B200 spec'd at >2000 A peak.</li>
+    <li><strong>I²R loss</strong>: with 1 mΩ socket resistance, 1250 A dissipates 1.5 kW just in the socket. That's why VRMs are placed millimetres from the package and why integrated voltage regulators (IVR) are standard on B200 / TPU v5p.</li>
+    <li><strong>di/dt</strong>: turning a 256×256 array on/off in one cycle is ~250 A/ns. Decoupling caps span four orders of magnitude (bulk → on-die MIM caps → finFET MOS caps).</li>
+    <li><strong>Wafer-scale (Cerebras)</strong>: power delivered <em>through</em> a vertical stack — the WSE-3 backplane uses thousands of vertical pins per dm² to bypass copper-resistance limits at wafer scale.</li>
+    <li><strong>Bow IPU</strong> (Graphcore 2022) takes a different route: wafer-on-wafer bonded a power-delivery die <em>under</em> the compute die — first commercial WoW stacked PDN.</li>
+  </ul>
+
+  <h3>Thermal envelope</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Cooling</th><th>Ceiling</th><th>Used by</th></tr>
+    <tr><td>Forced air</td><td>~400 W package</td><td>RTX 6000 Ada workstation, edge boxes</td></tr>
+    <tr><td>Direct-to-chip liquid</td><td>~1500 W package</td><td>H100/H200 SXM, B200, TPU v4/v5/v6</td></tr>
+    <tr><td>Two-phase liquid (immersion-style)</td><td>2 kW+ package</td><td>some hyperscale 2025 deployments</td></tr>
+    <tr><td>Full immersion</td><td>3 kW+, rack-density gain</td><td>experimental, Microsoft Azure pilots</td></tr>
+  </table></div>
+
+  <h3>Hotspot density</h3>
+  <p>A 256×256 array at FP8 dissipates roughly 100 W in <strong>~50 mm²</strong> of silicon — that's a flux of <strong>~200 W/cm²</strong>, several times higher than a kitchen hotplate. Most of the silicon area in a Tensor-Core SM is not multipliers; it's the operand-fan-in network, the result-spill paths, and the local SRAM banks that surround them — partly because this <em>spreads the heat out</em> so hotspot temperatures stay below the 105 °C electromigration limit.</p>
+
+  <div class="callout">
+    <div class="callout-label">Why every paper has a "thermal" slide now</div>
+    <p>At 4 nm and below, instantaneous power density (W/cm²) — not average TDP — is the design constraint. A 5th-gen Tensor Core's clock-gating scheme is as carefully tuned as its multiplier topology, because letting the array run at 100% utilisation for too long simply melts the metal stack above it.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 21: Tradeoffs -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s21">
+  <div class="slide-number">21</div>
+  <h2>Tradeoffs &amp; design space</h2>
+
+  <h3>Array size</h3>
+  <ul>
+    <li><strong>Small (4×4×4 V100 TC, 8×8 ARM SME ZA)</strong>: high utilisation on small/odd shapes; underexploits operand reuse.</li>
+    <li><strong>Medium (128×128 TPU v2–v5p)</strong>: sweet spot for transformer-class workloads.</li>
+    <li><strong>Large (256×256 Trillium, 256×256 TPU v1)</strong>: best peak FLOPS, worst utilisation on small batches; needs careful tile fusion.</li>
+    <li><strong>Wafer (Cerebras 900K cores)</strong>: minimises operand movement across an entire model; needs a dedicated compiler.</li>
+  </ul>
+
+  <h3>Format vs accuracy</h3>
+  <ul>
+    <li>FP32 → BF16 in 2018 was effectively free for inference and training (Google's BF16 paper).</li>
+    <li>BF16 → FP8 in 2022 needed Transformer Engine and per-tile scaling — not free, but practically lossless on most LLMs.</li>
+    <li>FP8 → FP4 in 2024 needs MXFP/NVFP4 + stochastic rounding + careful loss-scaling. Ongoing.</li>
+    <li>Below FP4: very active research, no shipping silicon.</li>
+  </ul>
+
+  <h3>Specialisation vs generality</h3>
+  <ul>
+    <li>NVIDIA Tensor Cores: any reasonable shape, any reasonable format. Pays in silicon area.</li>
+    <li>TPU MXU: fixed shape, BF16 / INT8 / FP8 only. Half the area for the same throughput.</li>
+    <li>Etched Sohu: hardwired transformer dataflow. ~10× the throughput per area, runs only one model class.</li>
+  </ul>
+
+  <h3>Reconfiguration cost</h3>
+  <ul>
+    <li>Switching numeric mode (e.g. FP16 ↔ FP8) on Hopper: free per-kernel.</li>
+    <li>Switching weights between layers: real cost — hence weight-stationary on edge, output-stationary for training.</li>
+    <li>Switching workloads (inference vs training): the whole compiler stack changes.</li>
+  </ul>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 22: Interactive dataflow comparator -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s22">
+  <div class="slide-number">22</div>
+  <h2>Interactive — dataflow comparator</h2>
+  <p>Choose an array geometry and see the resulting cycle count and operand bandwidth for each dataflow.</p>
+
+  <div class="control-panel">
+    <div class="control-row">
+      <label>Array rows (M)</label>
+      <input id="ctlR" type="range" min="4" max="256" step="4" value="32"/>
+      <span class="val" id="ctlRv">32</span>
+    </div>
+    <div class="control-row">
+      <label>Array cols (N)</label>
+      <input id="ctlC" type="range" min="4" max="256" step="4" value="32"/>
+      <span class="val" id="ctlCv">32</span>
+    </div>
+    <div class="control-row">
+      <label>Inner-K dimension</label>
+      <input id="ctlK" type="range" min="4" max="2048" step="4" value="128"/>
+      <span class="val" id="ctlKv">128</span>
+    </div>
+    <div class="control-row">
+      <label>Datatype</label>
+      <select id="ctlDT">
+        <option value="32">FP32 (32-bit)</option>
+        <option value="16" selected>BF16 (16-bit)</option>
+        <option value="8">FP8 (8-bit)</option>
+        <option value="4">FP4 (4-bit)</option>
+      </select>
+    </div>
+    <div class="metric-grid">
+      <div class="metric"><div class="metric-label">OS cycles</div><div class="metric-value" id="osCyc">—</div></div>
+      <div class="metric"><div class="metric-label">WS cycles</div><div class="metric-value" id="wsCyc">—</div></div>
+      <div class="metric"><div class="metric-label">DPT cycles</div><div class="metric-value" id="dptCyc">—</div></div>
+      <div class="metric"><div class="metric-label">Total MACs</div><div class="metric-value" id="totalMACs">—</div></div>
+      <div class="metric"><div class="metric-label">OS utilisation</div><div class="metric-value" id="osUtil">—</div></div>
+      <div class="metric"><div class="metric-label">Operand BW (GB/s @ 1 GHz)</div><div class="metric-value" id="opBW">—</div></div>
+    </div>
+  </div>
+
+  <p>Notice how the OS array's utilisation collapses for small K (fill bubble dominates) and the dot-product tree wins on latency but loses on per-cycle bandwidth. Real chips combine both — TPUs use OS-systolic for the MXU, NVIDIA TCs use trees, and both schedule many K-tiles back-to-back to hide the bubble.</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 23: Number-format explorer -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s23">
+  <div class="slide-number">23</div>
+  <h2>Interactive — number-format explorer</h2>
+  <p>Pick a format and a real number; see what gets stored.</p>
+
+  <div class="control-panel">
+    <div class="pill-row" id="fmtPills">
+      <span class="pill active" data-fmt="bf16">BF16</span>
+      <span class="pill" data-fmt="fp16">FP16</span>
+      <span class="pill" data-fmt="fp8e4m3">FP8 E4M3</span>
+      <span class="pill" data-fmt="fp8e5m2">FP8 E5M2</span>
+      <span class="pill" data-fmt="fp4">FP4 E2M1</span>
+      <span class="pill" data-fmt="int8">INT8</span>
+    </div>
+    <div class="control-row">
+      <label>Value</label>
+      <input id="fmtVal" type="number" step="any" value="1.234"/>
+    </div>
+    <div class="metric-grid">
+      <div class="metric"><div class="metric-label">Stored bits</div><div class="metric-value" id="fmtBits">—</div></div>
+      <div class="metric"><div class="metric-label">Decoded value</div><div class="metric-value" id="fmtRecon">—</div></div>
+      <div class="metric"><div class="metric-label">Abs error</div><div class="metric-value" id="fmtErr">—</div></div>
+      <div class="metric"><div class="metric-label">Range</div><div class="metric-value" id="fmtRange">—</div></div>
+    </div>
+  </div>
+
+  <p>Try <code>1e-4</code> in FP4 (you'll round to zero) versus BF16 (full precision). Try <code>50000</code> in FP8 E4M3 (saturates to ±448) versus FP8 E5M2 (representable). This is exactly why H100 pairs E4M3 (small range, more precision — for forward) with E5M2 (large range — for gradients).</p>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- SLIDE 24: Future directions -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="slide" id="s24">
+  <div class="slide-number">24</div>
+  <h2>Where this is going (2025 → 2027)</h2>
+
+  <ul>
+    <li><strong>Block-scaled microformats become default.</strong> NVFP4 (Blackwell), MXFP4 (AMD MI355X, Microsoft Maia 100), MXFP8/6 across the rest of the field. By 2026, "FP8" will mean MXFP8, not raw OFP8.</li>
+    <li><strong>Training in FP4.</strong> NVIDIA's late-2024 papers showed convergence parity at FP4 with stochastic rounding + per-tensor scales. Expect this to be production by 2026.</li>
+    <li><strong>3D-stacked SRAM.</strong> AMD MI300X's 3D V-Cache lineage points the way; rumoured Blackwell-NeXT brings SRAM-on-logic to NVIDIA. Closing the gap to wafer-scale's per-mm² SRAM.</li>
+    <li><strong>Optical I/O.</strong> TPU v4's Optical Circuit Switch and Lightmatter Passage demonstrate what TB/s of cabinet bandwidth at single-pJ/bit looks like.</li>
+    <li><strong>Transformer-only silicon.</strong> Etched, MatX, Cerebras CS-3 dense-KV-cache mode — all bet that the cost of generality is too high relative to hardwiring one model class.</li>
+    <li><strong>ISA-level matrix instructions.</strong> ARM SME, Intel AMX, RISC-V's nascent matrix extension — every CPU vendor is now adding a small MMUL into the core. The line between "CPU" and "AI chip" continues to blur.</li>
+    <li><strong>Power delivery, not transistor density, is the limit.</strong> Backside power delivery (Intel PowerVia, TSMC SPR) is the 2026–27 process feature that buys ~5% performance at iso-power — and matters precisely because the array is current-limited, not transistor-limited.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-label">Closing thought</div>
+    <p>The MMUL is the most architecturally settled part of an AI chip. The interesting work in 2025–2027 is not "what shape is the array" — that's been answered — but <em>everything around it</em>: how operands arrive, how partial sums leave, how the joules get in, and how the heat gets out.</p>
+  </div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <p><a href="https://github.com/BrendanJamesLynskey/AI_MMUL_Unit">github.com/BrendanJamesLynskey/AI_MMUL_Unit</a> — RTL · Python golden model · SV &amp; CocoTB testbenches · research brief</p>
+  <p>Cited specs verified against TPU papers (Jouppi 2017, 2020, 2023), NVIDIA Hopper / Blackwell whitepapers, OCP MX v1.0, OFP8 spec, Horowitz ISSCC 2014, and Eyeriss ISCA 2016.</p>
+</footer>
+
+<script>
+// ---------- Slide 21: dataflow comparator ----------
+function recompute() {
+  const R = +document.getElementById('ctlR').value;
+  const C = +document.getElementById('ctlC').value;
+  const K = +document.getElementById('ctlK').value;
+  const dt = +document.getElementById('ctlDT').value;
+  document.getElementById('ctlRv').textContent = R;
+  document.getElementById('ctlCv').textContent = C;
+  document.getElementById('ctlKv').textContent = K;
+
+  // Output-stationary cycles = K + R + C - 2 (single tile)
+  const osC  = K + R + C - 2;
+  // Weight-stationary = K + ceil(K/K)·load = K + K (load) for a single tile (rough)
+  const wsC  = K + K;
+  // Dot-product tree (K-wide per cycle, R*C lanes) = 1 cycle per (R*C) outputs * tile count
+  const dptC = Math.max(1, Math.ceil((R*C) / (R*C))); // here single-tile fits in 1
+  const macs = R * C * K;
+  const osPeak = R * C * osC;        // PE-cycles available
+  const osUtil = (macs / osPeak) * 100;
+
+  // Operand bandwidth: each cycle the OS array reads R + C operands of dt bits at 1 GHz
+  const bytesPerCycle = (R + C) * dt / 8;
+  const bw = bytesPerCycle * 1e9 / 1e9; // GB/s
+
+  document.getElementById('osCyc').textContent = osC.toLocaleString();
+  document.getElementById('wsCyc').textContent = wsC.toLocaleString();
+  document.getElementById('dptCyc').textContent = dptC.toLocaleString();
+  document.getElementById('totalMACs').textContent = macs.toLocaleString();
+  document.getElementById('osUtil').textContent = osUtil.toFixed(1) + '%';
+  document.getElementById('opBW').textContent = bw.toFixed(0) + ' GB/s';
+}
+['ctlR','ctlC','ctlK','ctlDT'].forEach(id => {
+  document.getElementById(id).addEventListener('input', recompute);
+});
+recompute();
+
+// ---------- Slide 22: number-format explorer ----------
+function fp32_bits(x) {
+  const buf = new ArrayBuffer(4);
+  new Float32Array(buf)[0] = x;
+  return new Uint32Array(buf)[0];
+}
+function bits_fp32(b) {
+  const buf = new ArrayBuffer(4);
+  new Uint32Array(buf)[0] = b >>> 0;
+  return new Float32Array(buf)[0];
+}
+function quantBF16(x) {
+  const b = fp32_bits(x);
+  const bias = 0x7FFF + ((b >>> 16) & 1);
+  const truncated = (b + bias) >>> 16;
+  return { bits: truncated & 0xFFFF, value: bits_fp32(truncated << 16), nbits: 16 };
+}
+function quantFP16(x) {
+  // simple JS-side IEEE binary16 round-to-nearest (no subnormal special-casing)
+  const f = fp32_bits(x);
+  const sign = (f >>> 16) & 0x8000;
+  let e32 = (f >>> 23) & 0xFF;
+  let m = f & 0x7FFFFF;
+  if (e32 === 0xFF) {
+    return { bits: sign | 0x7C00 | (m ? 0x200 : 0), value: m ? NaN : ((-1) ** (sign>>15)) * Infinity, nbits: 16 };
+  }
+  let e = e32 - 127 + 15;
+  let bits;
+  if (e >= 31) bits = sign | 0x7C00;
+  else if (e <= 0) bits = sign;  // approximate (subnormal-flush)
+  else bits = sign | (e << 10) | (((m + 0x1000) >>> 13) & 0x3FF);
+  // decode for display
+  let s = bits & 0x8000 ? -1 : 1;
+  let exp = (bits >>> 10) & 0x1F;
+  let mant = bits & 0x3FF;
+  let v;
+  if (exp === 0) v = s * mant * Math.pow(2, -24);
+  else if (exp === 31) v = mant ? NaN : s*Infinity;
+  else v = s * (1 + mant/1024) * Math.pow(2, exp - 15);
+  return { bits, value: v, nbits: 16 };
+}
+function quantFP8(x, eb, mb) {
+  if (x === 0) return { bits: 0, value: 0, nbits: 8 };
+  const sign = x < 0 ? 1 : 0;
+  let ax = Math.abs(x);
+  const bias = (1 << (eb - 1)) - 1;
+  const eMax = (1 << eb) - 1;
+  let e = Math.floor(Math.log2(ax));
+  let biased = e + bias;
+  let mInt;
+  // saturating clamp to eMax-1 (no NaN/Inf for FP4; E4M3 lacks Inf)
+  if (biased >= eMax) {
+    biased = eMax - 1;
+    mInt = (1 << mb) - 1;
+  } else if (biased < 1) {
+    biased = 0; mInt = 0;
+  } else {
+    const mant = ax / Math.pow(2, e) - 1.0;
+    mInt = Math.round(mant * (1 << mb));
+    if (mInt >= (1 << mb)) { mInt = 0; biased += 1; if (biased >= eMax) { biased = eMax - 1; mInt = (1 << mb) - 1; } }
+  }
+  const bits = (sign << 7) | (biased << mb) | mInt;
+  // decode
+  let v;
+  if (biased === 0) v = (sign?-1:1) * mInt * Math.pow(2, 1 - bias - mb);
+  else v = (sign?-1:1) * (1 + mInt/(1<<mb)) * Math.pow(2, biased - bias);
+  return { bits, value: v, nbits: 8 };
+}
+function quantFP4(x) {
+  // E2M1 with bias 1, no NaN/Inf, max ~ 6
+  if (x === 0) return { bits: 0, value: 0, nbits: 4 };
+  const sign = x < 0 ? 1 : 0;
+  let ax = Math.abs(x);
+  let e = Math.floor(Math.log2(ax));
+  let biased = e + 1;
+  let mInt;
+  if (biased >= 3) { biased = 3; mInt = 1; } // saturate -> 1.5*2^2 = 6
+  else if (biased < 1) { biased = 0; mInt = ax >= 0.5 ? 1 : 0; }
+  else { mInt = (ax / Math.pow(2, e) - 1.0) >= 0.5 ? 1 : 0; }
+  const bits = (sign << 3) | (biased << 1) | mInt;
+  let v;
+  if (biased === 0) v = (sign?-1:1) * mInt * 0.5;
+  else v = (sign?-1:1) * (1 + mInt*0.5) * Math.pow(2, biased - 1);
+  return { bits, value: v, nbits: 4 };
+}
+function quantINT8(x) {
+  let v = Math.max(-128, Math.min(127, Math.round(x)));
+  return { bits: v & 0xFF, value: v, nbits: 8 };
+}
+function activeFmt() {
+  const a = document.querySelector('.pill.active');
+  return a ? a.dataset.fmt : 'bf16';
+}
+const FMT_RANGE = {
+  bf16: '±3.4e38 (BF16)',
+  fp16: '±65504',
+  fp8e4m3: '±448',
+  fp8e5m2: '±57344',
+  fp4: '±6 (E2M1)',
+  int8: '−128 … +127'
+};
+function recomputeFmt() {
+  const fmt = activeFmt();
+  const x = parseFloat(document.getElementById('fmtVal').value);
+  let r;
+  if (isNaN(x)) {
+    document.getElementById('fmtBits').textContent = '—';
+    document.getElementById('fmtRecon').textContent = '—';
+    document.getElementById('fmtErr').textContent = '—';
+    document.getElementById('fmtRange').textContent = FMT_RANGE[fmt];
+    return;
+  }
+  if (fmt === 'bf16')      r = quantBF16(x);
+  else if (fmt === 'fp16') r = quantFP16(x);
+  else if (fmt === 'fp8e4m3') r = quantFP8(x, 4, 3);
+  else if (fmt === 'fp8e5m2') r = quantFP8(x, 5, 2);
+  else if (fmt === 'fp4')  r = quantFP4(x);
+  else if (fmt === 'int8') r = quantINT8(x);
+  document.getElementById('fmtBits').textContent =
+    '0x' + r.bits.toString(16).padStart(Math.ceil(r.nbits/4),'0').toUpperCase();
+  document.getElementById('fmtRecon').textContent = (typeof r.value === 'number' && isFinite(r.value)) ? r.value.toPrecision(6) : String(r.value);
+  document.getElementById('fmtErr').textContent = (typeof r.value === 'number' && isFinite(r.value)) ? Math.abs(x - r.value).toPrecision(3) : '—';
+  document.getElementById('fmtRange').textContent = FMT_RANGE[fmt];
+}
+document.querySelectorAll('#fmtPills .pill').forEach(p => {
+  p.addEventListener('click', () => {
+    document.querySelectorAll('#fmtPills .pill').forEach(q => q.classList.remove('active'));
+    p.classList.add('active');
+    recomputeFmt();
+  });
+});
+document.getElementById('fmtVal').addEventListener('input', recomputeFmt);
+recomputeFmt();
+</script>
+
+</body>
+</html>

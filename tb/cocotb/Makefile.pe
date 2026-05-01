@@ -1,0 +1,13 @@
+# CocoTB Makefile for the Processing Element (mmul_pe)
+SIM ?= icarus
+TOPLEVEL_LANG ?= verilog
+
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_pkg.sv
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_pe.sv
+
+TOPLEVEL = mmul_pe
+MODULE   = test_mmul_pe
+
+COMPILE_ARGS += -g2012
+
+include $(shell cocotb-config --makefiles)/Makefile.sim

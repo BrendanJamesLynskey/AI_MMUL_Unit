@@ -1,0 +1,13 @@
+# CocoTB Makefile for mmul_dotproduct
+SIM ?= icarus
+TOPLEVEL_LANG ?= verilog
+
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_pkg.sv
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_dotproduct.sv
+
+TOPLEVEL = mmul_dotproduct
+MODULE   = test_mmul_dotproduct
+
+COMPILE_ARGS += -g2012 -P mmul_dotproduct.K=8
+
+include $(shell cocotb-config --makefiles)/Makefile.sim

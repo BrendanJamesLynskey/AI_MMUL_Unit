@@ -1,0 +1,14 @@
+# CocoTB Makefile for mmul_systolic_os
+SIM ?= icarus
+TOPLEVEL_LANG ?= verilog
+
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_pkg.sv
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_pe.sv
+VERILOG_SOURCES += $(PWD)/../../rtl/mmul_systolic_os.sv
+
+TOPLEVEL = mmul_systolic_os
+MODULE   = test_mmul_systolic_os
+
+COMPILE_ARGS += -g2012 -P mmul_systolic_os.ROWS=4 -P mmul_systolic_os.COLS=4
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
